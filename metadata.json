@@ -1,0 +1,6 @@
+{
+  "name": "에이블런 교육 만족도 진단 리포트 생성기",
+  "description": "교육 만족도 설문 결과를 토대로 AI가 에이블런 교육 만족도 진단 리포트와 교육 제안을 자동생성 및 분석하는 내부 컨설팅 지원 도구",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

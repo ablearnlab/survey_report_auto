@@ -241,8 +241,8 @@ export default async function handler(req: any, res: any) {
       ]
     };
 
-    // Valid Gemini models (gemini-2.0-flash is the primary stable fast model)
-    const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+    // Gemini models supported by Google AI Studio key
+    const candidateModels = ["gemini-2.5-flash", "gemini-3.5-flash"];
     let lastError: any = null;
     let parsedJson = null;
 

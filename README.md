@@ -38,9 +38,39 @@ npm run dev
 
 ---
 
-## 🌐 Vercel 배포 방법
+## 🌐 Vercel 배포 및 설정 가이드
 
-1. GitHub 레포지토리를 Vercel과 연동합니다.
-2. Vercel 프로젝트 설정의 **Environment Variables**에 `GEMINI_API_KEY`를 추가합니다.
-3. 배포를 진행합니다.
+### 1. Google AI Studio에서 API 키 발급받기
+1. [Google AI Studio](https://aistudio.google.com/)에 접속하여 구글 계정으로 로그인합니다.
+2. 좌측 상단 메뉴의 **`Get API key`** ➔ **`Create API key`** 버튼을 클릭합니다.
+3. 생성된 키(문자열)를 복사해 둡니다.
+
+---
+
+### 2. Vercel 배포 및 API 키 등록/수정하기
+1. [Vercel](https://vercel.com/) 대시보드에 접속합니다.
+2. 배포할 프로젝트(또는 신규 프로젝트 **Import**)를 선택합니다.
+3. 프로젝트 상단 메뉴의 **`Settings`** ➔ **`Environment Variables`** 탭으로 이동합니다.
+4. 아래와 같이 입력하고 **`Save`** (또는 `Add`) 버튼을 클릭합니다:
+   - **Key**: `GEMINI_API_KEY`
+   - **Value**: `[Google AI Studio에서 복사한 API Key]`
+
+---
+
+### 🛠️ 오류 발생 시 Vercel에서 새로 재배포(Redeploy)하는 방법
+
+분석 오류나 API 키 변경 후 웹사이트에 반영이 필요한 경우, 다음 절차로 재배포를 진행할 수 있습니다.
+
+1. **Vercel 프로젝트 페이지 접속**
+   Vercel 대시보드에서 `survey_report_auto` (또는 해당 프로젝트)를 클릭합니다.
+
+2. **Deployments 탭 이동**
+   상단 메뉴에서 **`Deployments`** 탭을 클릭하여 전체 배포 내역 목록을 확인합니다.
+
+3. **새로 재배포 실행 (Redeploy)**
+   - 가장 최근 배포 항목 우측의 **`...` (더보기)** 버튼을 클릭합니다.
+   - 메뉴 중 **`Redeploy`** 를 선택합니다.
+   - 팝업창이 나타나면 **`Redeploy`** 버튼을 눌러 캐시 없이 최신 상태로 재배포를 시작합니다.
+   - 약 30초 후 배포 완료 상태가 되면 웹사이트를 새로고침하여 이용합니다.
+
 

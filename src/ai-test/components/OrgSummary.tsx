@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { OrgSummaryData, LevelName } from '../types';
 import RadarChart from './RadarChart';
-import { toCanvas, toJpeg } from 'html-to-image';
+import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
 const OrgSummary: React.FC<{ data: OrgSummaryData }> = ({ data }) => {
@@ -24,10 +24,12 @@ const OrgSummary: React.FC<{ data: OrgSummaryData }> = ({ data }) => {
       element.style.border = 'none';
       element.style.boxShadow = 'none';
 
-      // Capture using toCanvas for reliable Korean font rendering
-      const canvas = await toCanvas(element, {
-        pixelRatio: 3,
+      // html2canvas captures the actual browser rendering (no font serialization issues)
+      const canvas = await html2canvas(element, {
+        scale: 3,
+        useCORS: true,
         backgroundColor: '#ffffff',
+        logging: false,
       });
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
 

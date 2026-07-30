@@ -3,7 +3,7 @@ import { DiagnosticResult, AreaType, TrackType } from '../types';
 import RadarChart from './RadarChart';
 import { AREA_ADVICE } from '../data/areaAdvice';
 import { ROADMAP_COURSES } from '../data/roadmapCourses';
-import { toCanvas, toJpeg } from 'html-to-image';
+import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
 const IndividualReport: React.FC<{ current: DiagnosticResult; isHiddenMode?: boolean }> = ({ current, isHiddenMode = false }) => {
@@ -24,10 +24,12 @@ const IndividualReport: React.FC<{ current: DiagnosticResult; isHiddenMode?: boo
       element.style.border = 'none';
       element.style.boxShadow = 'none';
 
-      // Capture using toCanvas for reliable Korean font rendering
-      const canvas = await toCanvas(element, {
-        pixelRatio: 3,
+      // html2canvas captures the actual browser rendering (no font serialization issues)
+      const canvas = await html2canvas(element, {
+        scale: 3,
+        useCORS: true,
         backgroundColor: '#ffffff',
+        logging: false,
       });
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
 

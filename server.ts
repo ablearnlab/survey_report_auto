@@ -10,12 +10,18 @@ dotenv.config();
 const PORT = 3000;
 
 function sanitizeJsonString(str: string): string {
+  let cleaned = (str || "").trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
   let inString = false;
   let isEscaped = false;
   let result = "";
 
-  for (let i = 0; i < str.length; i++) {
-    const char = str[i];
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
 
     if (isEscaped) {
       result += char;
@@ -30,8 +36,21 @@ function sanitizeJsonString(str: string): string {
     }
 
     if (char === '"') {
-      inString = !inString;
-      result += char;
+      if (inString) {
+        // Look ahead to check if this double quote is a structural quote (followed by , } ] :)
+        const remaining = cleaned.slice(i + 1).trimStart();
+        const nextChar = remaining[0];
+        if (nextChar === ',' || nextChar === '}' || nextChar === ']' || nextChar === ':') {
+          inString = false;
+          result += char;
+        } else {
+          // Unescaped interior double quote: replace with single quote '
+          result += "'";
+        }
+      } else {
+        inString = true;
+        result += char;
+      }
       continue;
     }
 

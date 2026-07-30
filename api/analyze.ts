@@ -48,14 +48,20 @@ function optimizeStats(stats: any): any {
   return cloned;
 }
 
-// State-machine sanitizer for escaping raw newlines/tabs inside JSON string literals
+// Intelligent State-Machine Sanitizer that handles unescaped interior quotes and raw control newlines
 function sanitizeJsonString(str: string): string {
+  let cleaned = (str || "").trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
   let inString = false;
   let isEscaped = false;
   let result = "";
 
-  for (let i = 0; i < str.length; i++) {
-    const char = str[i];
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
 
     if (isEscaped) {
       result += char;
@@ -70,8 +76,21 @@ function sanitizeJsonString(str: string): string {
     }
 
     if (char === '"') {
-      inString = !inString;
-      result += char;
+      if (inString) {
+        // Look ahead to check if this double quote is a structural quote (followed by , } ] :)
+        const remaining = cleaned.slice(i + 1).trimStart();
+        const nextChar = remaining[0];
+        if (nextChar === ',' || nextChar === '}' || nextChar === ']' || nextChar === ':') {
+          inString = false;
+          result += char;
+        } else {
+          // Unescaped interior double quote: replace with single quote '
+          result += "'";
+        }
+      } else {
+        inString = true;
+        result += char;
+      }
       continue;
     }
 
@@ -105,7 +124,7 @@ function parseSafeJson(rawText: string): any {
   try {
     return JSON.parse(cleaned);
   } catch (e1) {
-    // Try 2: Sanitize raw unescaped newlines/tabs inside string literals
+    // Try 2: Sanitize interior unescaped quotes & newlines
     try {
       const sanitized = sanitizeJsonString(cleaned);
       return JSON.parse(sanitized);
@@ -171,8 +190,8 @@ export default async function handler(req: any, res: any) {
 7. 추천 교육은 반드시 특정 약점 근거와 1:1로 연결한다.
 8. 추천 교육은 [교육 카탈로그]에 실재하는 과정명만 쓴다.
 9. 개인 이름·식별정보를 출력하지 않는다.
-10. 주관식 인용은 원문을 짧게 그대로 쓰되, 인용 문장 내부에는 큰따옴표(")를 절대 사용하지 말고 필요시 작은따옴표(')만 사용해라.
-11. 출력되는 모든 JSON 텍스트 값 내부에서 줄바꿈(엔터)이나 큰따옴표(")를 절대 사용하지 마라. 문장 연결 시 줄바꿈 없이 한 줄로 이어서 써라.
+10. 주관식 인용은 원문을 짧게 그대로 쓰되, 큰따옴표(")는 절대 사용하지 말고 필요시 작은따옴표(')만 사용해라.
+11. 출력되는 모든 JSON 텍스트 값 내부에서 줄바꿈(엔터)이나 큰따옴표(")를 절대 사용하지 마라.
 
 [분량 규칙]
 - executive_summary: 3~4문장.

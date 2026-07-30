@@ -257,10 +257,13 @@ async function startServer() {
               responseMimeType: "application/json",
               responseSchema,
               temperature: 0.1,
-              maxOutputTokens: 3000
+              maxOutputTokens: 8192
             },
           });
-          parsedJson = JSON.parse(response.text || "{}");
+
+          let rawText = (response.text || "{}").trim();
+          rawText = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+          parsedJson = JSON.parse(rawText);
           if (parsedJson) break;
         } catch (err: any) {
           console.warn(`Model ${model} failed: ${err.message || err}. Trying next candidate model...`);

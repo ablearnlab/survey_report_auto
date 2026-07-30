@@ -9,6 +9,48 @@ dotenv.config();
 // Port & Host bind requirements
 const PORT = 3000;
 
+function parseSafeJson(rawText: string): any {
+  let cleaned = (rawText || "{}").trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (err1) {
+    try {
+      const sanitized = cleaned.replace(/[\u0000-\u001F]+/g, (match) => {
+        if (match === "\n") return "\\n";
+        if (match === "\r") return "\\r";
+        if (match === "\t") return "\\t";
+        return "";
+      });
+      return JSON.parse(sanitized);
+    } catch (err2) {
+      try {
+        let repaired = cleaned
+          .replace(/[\u0000-\u001F]+/g, (m) => (m === "\n" ? "\\n" : m === "\r" ? "\\r" : m === "\t" ? "\\t" : ""))
+          .replace(/\\"/g, "__QUOTE_TMP__")
+          .replace(/":\s*"([^"]*?)"/g, (m, val) => `": "${val.replace(/"/g, "'")}"`)
+          .replace(/__QUOTE_TMP__/g, '\\"');
+
+        if ((repaired.match(/"/g) || []).length % 2 !== 0) {
+          repaired += '"';
+        }
+        const openBraces = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
+        const openBrackets = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
+        for (let i = 0; i < openBrackets; i++) repaired += ']';
+        for (let i = 0; i < openBraces; i++) repaired += '}';
+        return JSON.parse(repaired);
+      } catch (err3) {
+        console.error("JSON Repair failed:", { cleaned, err1, err2, err3 });
+        throw err1;
+      }
+    }
+  }
+}
+
 async function startServer() {
   const app = express();
 
@@ -261,9 +303,7 @@ async function startServer() {
             },
           });
 
-          let rawText = (response.text || "{}").trim();
-          rawText = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
-          parsedJson = JSON.parse(rawText);
+          parsedJson = parseSafeJson(response.text || "{}");
           if (parsedJson) break;
         } catch (err: any) {
           console.warn(`Model ${model} failed: ${err.message || err}. Trying next candidate model...`);

@@ -48,6 +48,51 @@ function optimizeStats(stats: any): any {
   return cloned;
 }
 
+// Robust JSON repair and parsing function
+function parseSafeJson(rawText: string): any {
+  let cleaned = (rawText || "{}").trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (err1) {
+    // 1. Sanitize unescaped control characters/newlines inside JSON string literals
+    try {
+      const sanitized = cleaned.replace(/[\u0000-\u001F]+/g, (match) => {
+        if (match === "\n") return "\\n";
+        if (match === "\r") return "\\r";
+        if (match === "\t") return "\\t";
+        return "";
+      });
+      return JSON.parse(sanitized);
+    } catch (err2) {
+      // 2. Repair unescaped interior quotes or incomplete closing brackets
+      try {
+        let repaired = cleaned
+          .replace(/[\u0000-\u001F]+/g, (m) => (m === "\n" ? "\\n" : m === "\r" ? "\\r" : m === "\t" ? "\\t" : ""))
+          .replace(/\\"/g, "__QUOTE_TMP__")
+          .replace(/":\s*"([^"]*?)"/g, (m, val) => `": "${val.replace(/"/g, "'")}"`)
+          .replace(/__QUOTE_TMP__/g, '\\"');
+
+        if ((repaired.match(/"/g) || []).length % 2 !== 0) {
+          repaired += '"';
+        }
+        const openBraces = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
+        const openBrackets = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
+        for (let i = 0; i < openBrackets; i++) repaired += ']';
+        for (let i = 0; i < openBraces; i++) repaired += '}';
+        return JSON.parse(repaired);
+      } catch (err3) {
+        console.error("JSON Repair failed:", { cleaned, err1, err2, err3 });
+        throw err1;
+      }
+    }
+  }
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -90,7 +135,8 @@ export default async function handler(req: any, res: any) {
 7. 추천 교육은 반드시 특정 약점 근거와 1:1로 연결한다.
 8. 추천 교육은 [교육 카탈로그]에 실재하는 과정명만 쓴다.
 9. 개인 이름·식별정보를 출력하지 않는다.
-10. 주관식 인용은 원문을 짧게 그대로 쓰고 맞춤법을 임의로 고치지 않는다.
+10. 주관식 인용은 원문을 짧게 그대로 쓰되, 인용 문장 내부에는 큰따옴표(")를 절대 사용하지 말고 필요시 작은따옴표(')만 사용해라.
+11. 출력되는 모든 JSON 텍스트 값 내부에서 줄바꿈(엔터)이나 큰따옴표(")를 사용하지 마라. 큰따옴표가 필요한 경우 작은따옴표(')로 대체해라.
 
 [분량 규칙]
 - executive_summary: 3~4문장.
@@ -99,7 +145,7 @@ export default async function handler(req: any, res: any) {
 - demographic_insight, freetext_analysis.summary: 3~4문장 이내.
 - strengths 2개, weaknesses 2개, recommendations 2개 (반드시 2개만 추출).
 
-[출력 JSON 스키마] — 이 형식만, 마크다운·코드펜스·설명 없이 출력한다.`;
+[출력 JSON 스키마] — 이 형식만, 마크다운·코드펜스·설명 없이 순수 JSON만 출력한다.`;
 
     const userPrompt = `
   에이블런 만족도 진단 대상 과정 정보:
@@ -260,9 +306,7 @@ export default async function handler(req: any, res: any) {
           },
         });
 
-        let rawText = (response.text || "{}").trim();
-        rawText = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
-        parsedJson = JSON.parse(rawText);
+        parsedJson = parseSafeJson(response.text || "{}");
         if (parsedJson) break;
       } catch (err: any) {
         console.warn(`Model ${model} failed: ${err.message || err}. Trying next candidate model...`);

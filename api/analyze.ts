@@ -228,18 +228,34 @@ export default async function handler(req: any, res: any) {
       ]
     };
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: userPrompt,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema,
-        temperature: 0.1,
-      },
-    });
+    const candidateModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash"];
+    let lastError: any = null;
+    let parsedJson = null;
 
-    const parsedJson = JSON.parse(response.text || "{}");
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: userPrompt,
+          config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema,
+            temperature: 0.1,
+          },
+        });
+        parsedJson = JSON.parse(response.text || "{}");
+        if (parsedJson) break;
+      } catch (err: any) {
+        console.warn(`Model ${model} failed: ${err.message || err}. Trying next candidate model...`);
+        lastError = err;
+      }
+    }
+
+    if (!parsedJson) {
+      throw lastError || new Error("AI 모델 분석 호출 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+
     return res.status(200).json(parsedJson);
 
   } catch (error: any) {
@@ -250,3 +266,4 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
+

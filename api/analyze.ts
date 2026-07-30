@@ -48,7 +48,52 @@ function optimizeStats(stats: any): any {
   return cloned;
 }
 
-// Robust JSON repair and parsing function
+// State-machine sanitizer for escaping raw newlines/tabs inside JSON string literals
+function sanitizeJsonString(str: string): string {
+  let inString = false;
+  let isEscaped = false;
+  let result = "";
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+
+    if (isEscaped) {
+      result += char;
+      isEscaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      result += char;
+      isEscaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+
+    if (inString) {
+      if (char === "\n") {
+        result += "\\n";
+      } else if (char === "\r") {
+        result += "\\r";
+      } else if (char === "\t") {
+        result += "\\t";
+      } else {
+        result += char;
+      }
+    } else {
+      result += char;
+    }
+  }
+
+  return result;
+}
+
+// Bulletproof JSON repair & parser
 function parseSafeJson(rawText: string): any {
   let cleaned = (rawText || "{}").trim()
     .replace(/^```json\s*/i, "")
@@ -56,27 +101,18 @@ function parseSafeJson(rawText: string): any {
     .replace(/\s*```$/i, "")
     .trim();
 
+  // Try 1: Standard JSON parse
   try {
     return JSON.parse(cleaned);
-  } catch (err1) {
-    // 1. Sanitize unescaped control characters/newlines inside JSON string literals
+  } catch (e1) {
+    // Try 2: Sanitize raw unescaped newlines/tabs inside string literals
     try {
-      const sanitized = cleaned.replace(/[\u0000-\u001F]+/g, (match) => {
-        if (match === "\n") return "\\n";
-        if (match === "\r") return "\\r";
-        if (match === "\t") return "\\t";
-        return "";
-      });
+      const sanitized = sanitizeJsonString(cleaned);
       return JSON.parse(sanitized);
-    } catch (err2) {
-      // 2. Repair unescaped interior quotes or incomplete closing brackets
+    } catch (e2) {
+      // Try 3: Repair unclosed string quotes or missing brackets
       try {
-        let repaired = cleaned
-          .replace(/[\u0000-\u001F]+/g, (m) => (m === "\n" ? "\\n" : m === "\r" ? "\\r" : m === "\t" ? "\\t" : ""))
-          .replace(/\\"/g, "__QUOTE_TMP__")
-          .replace(/":\s*"([^"]*?)"/g, (m, val) => `": "${val.replace(/"/g, "'")}"`)
-          .replace(/__QUOTE_TMP__/g, '\\"');
-
+        let repaired = sanitizeJsonString(cleaned);
         if ((repaired.match(/"/g) || []).length % 2 !== 0) {
           repaired += '"';
         }
@@ -85,9 +121,9 @@ function parseSafeJson(rawText: string): any {
         for (let i = 0; i < openBrackets; i++) repaired += ']';
         for (let i = 0; i < openBraces; i++) repaired += '}';
         return JSON.parse(repaired);
-      } catch (err3) {
-        console.error("JSON Repair failed:", { cleaned, err1, err2, err3 });
-        throw err1;
+      } catch (e3) {
+        console.error("JSON Parse Error Log:", { rawText, e1, e2, e3 });
+        throw e1;
       }
     }
   }
@@ -136,7 +172,7 @@ export default async function handler(req: any, res: any) {
 8. 추천 교육은 [교육 카탈로그]에 실재하는 과정명만 쓴다.
 9. 개인 이름·식별정보를 출력하지 않는다.
 10. 주관식 인용은 원문을 짧게 그대로 쓰되, 인용 문장 내부에는 큰따옴표(")를 절대 사용하지 말고 필요시 작은따옴표(')만 사용해라.
-11. 출력되는 모든 JSON 텍스트 값 내부에서 줄바꿈(엔터)이나 큰따옴표(")를 사용하지 마라. 큰따옴표가 필요한 경우 작은따옴표(')로 대체해라.
+11. 출력되는 모든 JSON 텍스트 값 내부에서 줄바꿈(엔터)이나 큰따옴표(")를 절대 사용하지 마라. 문장 연결 시 줄바꿈 없이 한 줄로 이어서 써라.
 
 [분량 규칙]
 - executive_summary: 3~4문장.

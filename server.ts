@@ -9,6 +9,50 @@ dotenv.config();
 // Port & Host bind requirements
 const PORT = 3000;
 
+function sanitizeJsonString(str: string): string {
+  let inString = false;
+  let isEscaped = false;
+  let result = "";
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+
+    if (isEscaped) {
+      result += char;
+      isEscaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      result += char;
+      isEscaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+
+    if (inString) {
+      if (char === "\n") {
+        result += "\\n";
+      } else if (char === "\r") {
+        result += "\\r";
+      } else if (char === "\t") {
+        result += "\\t";
+      } else {
+        result += char;
+      }
+    } else {
+      result += char;
+    }
+  }
+
+  return result;
+}
+
 function parseSafeJson(rawText: string): any {
   let cleaned = (rawText || "{}").trim()
     .replace(/^```json\s*/i, "")
@@ -18,23 +62,13 @@ function parseSafeJson(rawText: string): any {
 
   try {
     return JSON.parse(cleaned);
-  } catch (err1) {
+  } catch (e1) {
     try {
-      const sanitized = cleaned.replace(/[\u0000-\u001F]+/g, (match) => {
-        if (match === "\n") return "\\n";
-        if (match === "\r") return "\\r";
-        if (match === "\t") return "\\t";
-        return "";
-      });
+      const sanitized = sanitizeJsonString(cleaned);
       return JSON.parse(sanitized);
-    } catch (err2) {
+    } catch (e2) {
       try {
-        let repaired = cleaned
-          .replace(/[\u0000-\u001F]+/g, (m) => (m === "\n" ? "\\n" : m === "\r" ? "\\r" : m === "\t" ? "\\t" : ""))
-          .replace(/\\"/g, "__QUOTE_TMP__")
-          .replace(/":\s*"([^"]*?)"/g, (m, val) => `": "${val.replace(/"/g, "'")}"`)
-          .replace(/__QUOTE_TMP__/g, '\\"');
-
+        let repaired = sanitizeJsonString(cleaned);
         if ((repaired.match(/"/g) || []).length % 2 !== 0) {
           repaired += '"';
         }
@@ -43,9 +77,9 @@ function parseSafeJson(rawText: string): any {
         for (let i = 0; i < openBrackets; i++) repaired += ']';
         for (let i = 0; i < openBraces; i++) repaired += '}';
         return JSON.parse(repaired);
-      } catch (err3) {
-        console.error("JSON Repair failed:", { cleaned, err1, err2, err3 });
-        throw err1;
+      } catch (e3) {
+        console.error("JSON Parse Error Log:", { rawText, e1, e2, e3 });
+        throw e1;
       }
     }
   }

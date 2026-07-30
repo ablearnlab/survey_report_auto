@@ -243,7 +243,7 @@ async function startServer() {
         ]
       };
 
-      const candidateModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash"];
+      const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
       let lastError: any = null;
       let parsedJson = null;
 
@@ -257,6 +257,7 @@ async function startServer() {
               responseMimeType: "application/json",
               responseSchema,
               temperature: 0.1,
+              maxOutputTokens: 3000
             },
           });
           parsedJson = JSON.parse(response.text || "{}");

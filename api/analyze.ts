@@ -1,10 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+// Increase Vercel Serverless Function timeout limit to 60 seconds
+export const maxDuration = 60;
+
 let aiClient: GoogleGenAI | null = null;
 function getAiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not defined in the workspace environment variables.");
+    throw new Error("GEMINI_API_KEY is not defined in the environment variables.");
   }
   if (!aiClient) {
     aiClient = new GoogleGenAI({
@@ -17,6 +20,32 @@ function getAiClient(): GoogleGenAI {
     });
   }
   return aiClient;
+}
+
+// Token & Payload Optimization Helpers
+function optimizeCatalog(catalog: any[]): any[] {
+  if (!Array.isArray(catalog)) return [];
+  return catalog.slice(0, 40).map((item) => {
+    if (typeof item !== "object" || !item) return item;
+    return {
+      course_name: item.course_name || item["과정명"] || item.name || item.course || "",
+      category: item.category || item["분야"] || item["카테고리"] || "",
+      summary: item.summary || item["과정소개"] || item["주요내용"] || "",
+      target: item.target || item["추천대상"] || ""
+    };
+  });
+}
+
+function optimizeStats(stats: any): any {
+  if (!stats || typeof stats !== "object") return stats;
+  const cloned = JSON.parse(JSON.stringify(stats));
+  if (Array.isArray(cloned.freetextResponses) && cloned.freetextResponses.length > 40) {
+    cloned.freetextResponses = cloned.freetextResponses.slice(0, 40);
+  }
+  if (Array.isArray(cloned.subjectiveAnswers) && cloned.subjectiveAnswers.length > 40) {
+    cloned.subjectiveAnswers = cloned.subjectiveAnswers.slice(0, 40);
+  }
+  return cloned;
 }
 
 export default async function handler(req: any, res: any) {
@@ -37,6 +66,8 @@ export default async function handler(req: any, res: any) {
     }
 
     const ai = getAiClient();
+    const optimizedStatsData = optimizeStats(stats);
+    const optimizedCatalogData = optimizeCatalog(catalog);
 
     const systemInstruction = `너는 기업 교육효과를 진단하는 시니어 컨설턴트다. 교육 만족도 설문의
 [집계 통계], [주관식 원문], [교육 카탈로그]를 받아 한 회사의 진단 리포트
@@ -54,52 +85,34 @@ export default async function handler(req: any, res: any) {
 4. 단정적 과장을 피하고 데이터가 보여주는 만큼만 말한다.
    "~로 나타났다", "~로 해석된다", "~경향이 있다"를 쓴다.
    "~을 견인했다", "~할 것으로 기대된다" 같은 마케팅 어조를 쓰지 않는다.
-5. methodology_note 에는 "응답 패턴이 어떠하니 유의해라" 같은 연구 방법론적 경고나 분석의 한계를 적지 않는다. 대신 리포트 전체에서 도출된 핵심 시사점, 강점과 약점의 요약, 그리고 이를 바탕으로 한 향후 교육 방향성 등 종합적인 결과 요약을 작성한다.
-6. 응답자가 모두 동일한 점수를 주었다는(straight-lining) 등의 응답 편향이나 분석의 한계 사항은 언급하지 않고, 순수하게 텍스트 의견과 집계된 데이터가 보여주는 의미에만 집중한다.
+5. methodology_note 에는 종합적인 결과 요약을 작성한다.
+6. 응답 편향이나 분석의 한계 사항은 언급하지 않고, 텍스트 의견과 집계 데이터 의미에만 집중한다.
 7. 추천 교육은 반드시 특정 약점 근거와 1:1로 연결한다.
-   rationale에 "어느 점수/어느 응답 때문에 이 과정을 추천하는지"를 적는다.
-8. 추천 교육은 [교육 카탈로그]에 실재하는 과정명만 쓴다. 약점에 맞는
-   과정이 없으면 추천 수를 줄이고 closing_remarks에 카탈로그 공백을 적는다.
-9. 개인 이름·식별정보를 출력하지 않는다. 모든 분석은 집계 수준으로 한다.
-10. 주관식 인용은 원문을 짧게(한 문장 이내) 그대로 쓰고, 맞춤법을 임의로
-    고치지 않는다. 인용은 대표성 있는 것만 고른다.
+8. 추천 교육은 [교육 카탈로그]에 실재하는 과정명만 쓴다.
+9. 개인 이름·식별정보를 출력하지 않는다.
+10. 주관식 인용은 원문을 짧게 그대로 쓰고 맞춤법을 임의로 고치지 않는다.
 
 [분량 규칙]
-- executive_summary: 3~4문장. A4 용지에 맞게 들어갈 수 있도록 핵심만 간결하게.
-- grade_rationale: 1문장 이내로 아주 간결하게 작성.
+- executive_summary: 3~4문장.
+- grade_rationale: 1문장 이내.
 - 각 strength/weakness의 description: 2~3문장 이내, 근거 수치 포함.
 - demographic_insight, freetext_analysis.summary: 3~4문장 이내.
 - strengths 2개, weaknesses 2개, recommendations 2개 (반드시 2개만 추출).
 
-[출력 JSON 스키마] — 이 형식만, 마크다운·코드펜스·설명 없이 출력한다.
-{
-  "methodology_note": "string",
-  "executive_summary": "string",
-  "overall_grade": "우수|양호|보통|개선필요",
-  "grade_rationale": "string",
-  "strengths": [{"title":"string","description":"string","evidence":"string"}],
-  "weaknesses": [{"title":"string","description":"string","evidence":"string"}],
-  "demographic_insight": "string",
-  "most_helpful": {"summary":"string","themes":[{"theme":"string","mentions":"string","example":"string"}]},
-  "improvement": {"summary":"string","top_need":"string","ranked_items":[{"item":"string","count":"string","share":"string"}]},
-  "freetext_analysis": {"summary":"string","themes":[{"theme":"string","sentiment":"긍정|중립|부정","quote":"string"}]},
-  "recommendations": [{"course_name":"string","priority":1,"linked_weakness":"string","linked_evidence":"string","rationale":"string","expected_effect":"string","target":"string"}],
-  "limitations": "string",
-  "closing_remarks": "string"
-}`;
+[출력 JSON 스키마] — 이 형식만, 마크다운·코드펜스·설명 없이 출력한다.`;
 
     const userPrompt = `
   에이블런 만족도 진단 대상 과정 정보:
   - 교육 과정명: "${courseTitle || "미지정 과정"}"
   - 교육 일자: "${courseDate || "미지정 일자"}"
 
-  [집계 통계 (Calculated Analytics - Fact Sheet)]
-  ${JSON.stringify(stats, null, 2)}
+  [집계 통계]
+  ${JSON.stringify(optimizedStatsData)}
 
-  [교육 카탈로그 (Full Work Course Offerings)]
-  ${JSON.stringify(catalog, null, 2)}
+  [교육 카탈로그]
+  ${JSON.stringify(optimizedCatalogData)}
 
-  위 통계 및 주관식 원문 데이터를 심도있게 해석하여 한 회사 전용의 맞춤형 진단 분석 리포트 콘텐츠를 구조화된 JSON 데이터로 작성하여라. 반드시 규칙들을 완벽하게 준수하여 충분하고 깊이 있는 서술형 문장을 제공해라.
+  위 통계 및 주관식 원문 데이터를 심도있게 해석하여 진단 분석 리포트 콘텐츠를 구조화된 JSON 데이터로 작성하여라.
   `;
 
     const responseSchema = {
@@ -228,7 +241,8 @@ export default async function handler(req: any, res: any) {
       ]
     };
 
-    const candidateModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash"];
+    // Valid Gemini models (gemini-2.0-flash is the primary stable fast model)
+    const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
     let lastError: any = null;
     let parsedJson = null;
 
@@ -242,6 +256,7 @@ export default async function handler(req: any, res: any) {
             responseMimeType: "application/json",
             responseSchema,
             temperature: 0.1,
+            maxOutputTokens: 3000
           },
         });
         parsedJson = JSON.parse(response.text || "{}");
@@ -266,4 +281,3 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
-

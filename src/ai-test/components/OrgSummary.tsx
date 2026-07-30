@@ -24,13 +24,12 @@ const OrgSummary: React.FC<{ data: OrgSummaryData }> = ({ data }) => {
       element.style.border = 'none';
       element.style.boxShadow = 'none';
 
-      // Capture using html-to-image directly from the live DOM
-      const imgData = await toJpeg(element, {
-        quality: 1.0,
-        pixelRatio: 4,
+      // Capture using toCanvas for reliable Korean font rendering
+      const canvas = await toCanvas(element, {
+        pixelRatio: 3,
         backgroundColor: '#ffffff',
-        skipFonts: true
       });
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
 
       // Restore original styling
       element.style.border = originalBorder;
@@ -241,8 +240,8 @@ const OrgSummary: React.FC<{ data: OrgSummaryData }> = ({ data }) => {
                     <span className="text-xl font-black leading-none">{idx + 1}</span>
                   </div>
                   <div className="min-w-0">
-                    <h4 className="text-sm font-black text-indigo-950 mb-1">{areaMap[pa.area]} 영역</h4>
-                    <p className="text-[11px] font-bold text-slate-500">
+                    <h4 className="text-sm font-black text-indigo-950 mb-1 whitespace-nowrap">{areaMap[pa.area]} 영역</h4>
+                    <p className="text-[11px] font-bold text-slate-500 whitespace-nowrap">
                       평균 성취도: <span className="text-rose-500 font-black">{pa.percentage}%</span>
                     </p>
                   </div>

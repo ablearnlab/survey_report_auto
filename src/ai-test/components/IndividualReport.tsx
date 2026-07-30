@@ -24,13 +24,12 @@ const IndividualReport: React.FC<{ current: DiagnosticResult; isHiddenMode?: boo
       element.style.border = 'none';
       element.style.boxShadow = 'none';
 
-      // Capture using html-to-image directly from the live DOM
-      const imgData = await toJpeg(element, {
-        quality: 1.0,
-        pixelRatio: 4,
+      // Capture using toCanvas for reliable Korean font rendering
+      const canvas = await toCanvas(element, {
+        pixelRatio: 3,
         backgroundColor: '#ffffff',
-        skipFonts: true
       });
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
 
       // Restore original styling
       element.style.border = originalBorder;

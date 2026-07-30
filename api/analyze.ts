@@ -12,11 +12,6 @@ function getAiClient(): GoogleGenAI {
   if (!aiClient) {
     aiClient = new GoogleGenAI({
       apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
-      },
     });
   }
   return aiClient;
@@ -137,6 +132,8 @@ function extractPartialReportJson(rawText: string): any {
     if ((repaired.match(/"/g) || []).length % 2 !== 0) {
       repaired += '"';
     }
+    // Remove trailing comma before closing brackets/braces
+    repaired = repaired.replace(/,\s*([\]}])/g, '$1');
     const openBraces = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
     const openBrackets = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
     for (let i = 0; i < openBrackets; i++) repaired += ']';
@@ -237,7 +234,143 @@ function extractPartialReportJson(rawText: string): any {
   return fallbackResult;
 }
 
+// Define strict response schema to force structured JSON output from Gemini
+const responseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    methodology_note: { type: Type.STRING },
+    executive_summary: { type: Type.STRING },
+    overall_grade: { type: Type.STRING },
+    grade_rationale: { type: Type.STRING },
+    strengths: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+          evidence: { type: Type.STRING }
+        },
+        required: ["title", "description", "evidence"]
+      }
+    },
+    weaknesses: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+          evidence: { type: Type.STRING }
+        },
+        required: ["title", "description", "evidence"]
+      }
+    },
+    demographic_insight: { type: Type.STRING },
+    most_helpful: {
+      type: Type.OBJECT,
+      properties: {
+        summary: { type: Type.STRING },
+        themes: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              theme: { type: Type.STRING },
+              mentions: { type: Type.STRING },
+              example: { type: Type.STRING }
+            },
+            required: ["theme", "mentions", "example"]
+          }
+        }
+      },
+      required: ["summary", "themes"]
+    },
+    improvement: {
+      type: Type.OBJECT,
+      properties: {
+        summary: { type: Type.STRING },
+        top_need: { type: Type.STRING },
+        ranked_items: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              item: { type: Type.STRING },
+              count: { type: Type.STRING },
+              share: { type: Type.STRING }
+            },
+            required: ["item", "count", "share"]
+          }
+        }
+      },
+      required: ["summary", "top_need", "ranked_items"]
+    },
+    freetext_analysis: {
+      type: Type.OBJECT,
+      properties: {
+        summary: { type: Type.STRING },
+        themes: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              theme: { type: Type.STRING },
+              sentiment: { type: Type.STRING },
+              quote: { type: Type.STRING }
+            },
+            required: ["theme", "sentiment", "quote"]
+          }
+        }
+      },
+      required: ["summary", "themes"]
+    },
+    recommendations: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          course_name: { type: Type.STRING },
+          priority: { type: Type.INTEGER },
+          linked_weakness: { type: Type.STRING },
+          linked_evidence: { type: Type.STRING },
+          rationale: { type: Type.STRING },
+          expected_effect: { type: Type.STRING },
+          target: { type: Type.STRING }
+        },
+        required: ["course_name", "priority", "linked_weakness", "linked_evidence", "rationale", "expected_effect", "target"]
+      }
+    },
+    limitations: { type: Type.STRING },
+    closing_remarks: { type: Type.STRING }
+  },
+  required: [
+    "methodology_note",
+    "executive_summary",
+    "overall_grade",
+    "grade_rationale",
+    "strengths",
+    "weaknesses",
+    "demographic_insight",
+    "most_helpful",
+    "improvement",
+    "freetext_analysis",
+    "recommendations",
+    "limitations",
+    "closing_remarks"
+  ]
+};
+
 export default async function handler(req: any, res: any) {
+  // Set CORS headers for safety
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -274,17 +407,19 @@ export default async function handler(req: any, res: any) {
 4. 단정적 과장을 피하고 데이터가 보여주는 만큼만 말한다.
    "~로 나타났다", "~로 해석된다", "~경향이 있다"를 쓴다.
    "~을 견인했다", "~할 것으로 기대된다" 같은 마케팅 어조를 쓰지 않는다.
-5. methodology_note 에는 종합적인 결과 요약을 작성한다.
-6. 응답 편향이나 분석의 한계 사항은 언급하지 않고, 텍스트 의견과 집계 데이터 의미에만 집중한다.
+5. methodology_note 에는 "응답 패턴이 어떠하니 유의해라" 같은 연구 방법론적 경고나 분석의 한계를 적지 않는다. 대신 리포트 전체에서 도출된 핵심 시사점, 강점과 약점의 요약, 그리고 이를 바탕으로 한 향후 교육 방향성 등 종합적인 결과 요약을 작성한다.
+6. 응답자가 모두 동일한 점수를 주었다는(straight-lining) 등의 응답 편향이나 분석의 한계 사항은 언급하지 않고, 순수하게 텍스트 의견과 집계된 데이터가 보여주는 의미에만 집중한다.
 7. 추천 교육은 반드시 특정 약점 근거와 1:1로 연결한다.
-8. 추천 교육은 [교육 카탈로그]에 실재하는 과정명만 쓴다.
-9. 개인 이름·식별정보를 출력하지 않는다.
-10. 주관식 인용은 원문을 짧게 그대로 쓰되, 큰따옴표(")는 절대 사용하지 말고 필요시 작은따옴표(')만 사용해라.
-11. 출력되는 모든 JSON 텍스트 값 내부에서 줄바꿈(엔터)이나 큰따옴표(")를 절대 사용하지 마라.
+   rationale에 "어느 점수/어느 응답 때문에 이 과정을 추천하는지"를 적는다.
+8. 추천 교육은 [교육 카탈로그]에 실재하는 과정명만 쓴다. 약점에 맞는
+   과정이 없으면 추천 수를 줄이고 closing_remarks에 카탈로그 공백을 적는다.
+9. 개인 이름·식별정보를 출력하지 않는다. 모든 분석은 집계 수준으로 한다.
+10. 주관식 인용은 원문을 짧게(한 문장 이내) 그대로 쓰고, 맞춤법을 임의로
+    고치지 않는다. 인용은 대표성 있는 것만 고른다.
 
 [분량 규칙]
-- executive_summary: 3~4문장.
-- grade_rationale: 1문장 이내.
+- executive_summary: 3~4문장. A4 용지에 맞게 들어갈 수 있도록 핵심만 간결하게.
+- grade_rationale: 1문장 이내로 아주 간결하게 작성.
 - 각 strength/weakness의 description: 2~3문장 이내, 근거 수치 포함.
 - demographic_insight, freetext_analysis.summary: 3~4문장 이내.
 - strengths 2개, weaknesses 2개, recommendations 2개 (반드시 2개만 추출).
@@ -292,18 +427,18 @@ export default async function handler(req: any, res: any) {
 [출력 형식] — 마크다운, 코드펜스 없이 오직 순수한 JSON 문자열만 출력한다.`;
 
     const userPrompt = `
-  에이블런 만족도 진단 대상 과정 정보:
-  - 교육 과정명: "${courseTitle || "미지정 과정"}"
-  - 교육 일자: "${courseDate || "미지정 일자"}"
+에이블런 만족도 진단 대상 과정 정보:
+- 교육 과정명: "${courseTitle || "미지정 과정"}"
+- 교육 일자: "${courseDate || "미지정 일자"}"
 
-  [집계 통계]
-  ${JSON.stringify(optimizedStatsData)}
+[집계 통계 (Calculated Analytics - Fact Sheet)]
+${JSON.stringify(optimizedStatsData, null, 2)}
 
-  [교육 카탈로그]
-  ${JSON.stringify(optimizedCatalogData)}
+[교육 카탈로그 (Full Work Course Offerings)]
+${JSON.stringify(optimizedCatalogData, null, 2)}
 
-  위 통계 및 주관식 원문 데이터를 심도있게 해석하여 진단 분석 리포트 콘텐츠를 구조화된 JSON 데이터로 작성하여라.
-  `;
+위 통계 및 주관식 원문 데이터를 심도있게 해석하여 한 회사 전용의 맞춤형 진단 분석 리포트 콘텐츠를 구조화된 JSON 데이터로 작성하여라. 반드시 규칙들을 완벽하게 준수하여 충분하고 깊이 있는 서술형 문장을 제공해라.
+`;
 
     // Gemini models supported by Google AI Studio key
     const candidateModels = ["gemini-2.5-flash", "gemini-3.5-flash"];
@@ -318,6 +453,7 @@ export default async function handler(req: any, res: any) {
           config: {
             systemInstruction,
             responseMimeType: "application/json",
+            responseSchema,
             temperature: 0.1,
             maxOutputTokens: 8192
           },

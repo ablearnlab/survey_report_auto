@@ -96,11 +96,33 @@ export default function ReportScreen({
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "리포트 생성 API 호출이 실패하였습니다.");
+        let errorMessage = `서버 오류 (${response.status}): 리포트 생성 API 호출이 실패하였습니다.`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Response body is not valid JSON (e.g., Vercel timeout HTML page, empty body)
+          try {
+            const textBody = await response.text();
+            if (textBody.includes("FUNCTION_INVOCATION_TIMEOUT") || response.status === 504) {
+              errorMessage = "서버 함수 실행 시간이 초과되었습니다. 데이터 크기를 줄이거나 다시 시도해 주세요.";
+            }
+          } catch {
+            // ignore secondary parse failures
+          }
+        }
+        throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      // Safely parse the success response body
+      let data;
+      try {
+        const rawText = await response.text();
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error("서버 응답 데이터를 처리할 수 없습니다. 다시 시도해 주세요.");
+      }
+
       setReport(data);
       setLoading(false);
     } catch (err: any) {

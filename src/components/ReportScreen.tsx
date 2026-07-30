@@ -83,6 +83,10 @@ export default function ReportScreen({
     setErrorWord(null);
     setLoadingStep(0);
 
+    // 65-second client-side timeout (Vercel function maxDuration is 60s)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 65000);
+
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -93,41 +97,52 @@ export default function ReportScreen({
           courseDate,
           catalog,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
+
+      // Read body exactly ONCE as text (Response body can only be consumed once)
+      let rawText = "";
+      try {
+        rawText = await response.text();
+      } catch {
+        throw new Error("서버 응답을 수신하지 못했습니다. 네트워크 연결을 확인하고 다시 시도해 주세요.");
+      }
 
       if (!response.ok) {
         let errorMessage = `서버 오류 (${response.status}): 리포트 생성 API 호출이 실패하였습니다.`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          // Response body is not valid JSON (e.g., Vercel timeout HTML page, empty body)
+        if (response.status === 504 || rawText.includes("FUNCTION_INVOCATION_TIMEOUT")) {
+          errorMessage = "서버 함수 실행 시간이 초과되었습니다. '다시 시도' 버튼을 눌러주세요.";
+        } else {
           try {
-            const textBody = await response.text();
-            if (textBody.includes("FUNCTION_INVOCATION_TIMEOUT") || response.status === 504) {
-              errorMessage = "서버 함수 실행 시간이 초과되었습니다. 데이터 크기를 줄이거나 다시 시도해 주세요.";
-            }
+            const errorData = JSON.parse(rawText);
+            if (errorData.error) errorMessage = errorData.error;
           } catch {
-            // ignore secondary parse failures
+            // Non-JSON error body (e.g. Vercel HTML error page) — keep default message
           }
         }
         throw new Error(errorMessage);
       }
 
-      // Safely parse the success response body
+      // Parse the success response
       let data;
       try {
-        const rawText = await response.text();
         data = JSON.parse(rawText);
       } catch {
-        throw new Error("서버 응답 데이터를 처리할 수 없습니다. 다시 시도해 주세요.");
+        throw new Error("AI 분석 응답 데이터를 처리할 수 없습니다. '다시 시도' 버튼을 눌러주세요.");
       }
 
       setReport(data);
       setLoading(false);
     } catch (err: any) {
+      clearTimeout(timeoutId);
       console.error(err);
-      setErrorWord(err.message || "보고서를 생성하는 도중 일시적인 서버 지연이 발생했습니다. 다시 시도해 주세요.");
+      let message = err.message || "보고서를 생성하는 도중 일시적인 서버 지연이 발생했습니다. 다시 시도해 주세요.";
+      if (err.name === "AbortError") {
+        message = "서버 응답 대기 시간이 초과되었습니다. '다시 시도' 버튼을 눌러주세요.";
+      }
+      setErrorWord(message);
       setLoading(false);
     }
   };
